@@ -256,7 +256,7 @@ export class BullExplorer {
     } else {
       processor = instance[methodKey].bind(instance);
     }
-    (instance as any)._worker = processor;
+    (instance as any)._processor = processor;
   }
 
   registerWorkerEventListeners(wrapper: InstanceWrapper) {
