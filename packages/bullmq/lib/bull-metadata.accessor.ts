@@ -1,6 +1,7 @@
 import { Injectable, Type } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import {
+  DYNAMIC_PROCESSOR_METADATA,
   ON_QUEUE_EVENT_METADATA,
   ON_WORKER_EVENT_METADATA,
   PROCESSOR_METADATA,
@@ -24,6 +25,13 @@ export class BullMetadataAccessor {
       return false;
     }
     return !!this.reflector.get(PROCESSOR_METADATA, target);
+  }
+
+  isDynamicProcessor(target: Type<any> | Function): boolean {
+    if (!target) {
+      return false;
+    }
+    return !!this.reflector.get(DYNAMIC_PROCESSOR_METADATA, target);
   }
 
   isQueueEventsListener(target: Type<any> | Function): boolean {

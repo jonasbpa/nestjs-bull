@@ -28,6 +28,7 @@ import { QueueEventsHost, WorkerHost } from './hosts';
 import { getSharedConfigToken } from './utils/get-shared-config-token.util';
 import { NestQueueOptions } from './interfaces/queue-options.interface';
 import { NestWorkerOptions } from './interfaces/worker-options.interface';
+import { DynamicProcessorHost } from './hosts/dynamic-processor-host.class';
 
 @Injectable()
 export class BullExplorer {
@@ -47,6 +48,7 @@ export class BullExplorer {
   ) {}
 
   register() {
+    this.registerDynamicProcessors();
     this.registerWorkers();
     this.registerQueueEventListeners();
   }
@@ -104,6 +106,40 @@ export class BullExplorer {
       }
 
       this.registerWorkerEventListeners(wrapper);
+    });
+  }
+
+  registerDynamicProcessors() {
+    const processors: InstanceWrapper[] = this.discoveryService
+      .getProviders()
+      .filter((wrapper: InstanceWrapper) =>
+        this.metadataAccessor.isDynamicProcessor(
+          // NOTE: Regarding the ternary statement below,
+          // - The condition `!wrapper.metatype` is because when we use `useValue`
+          // the value of `wrapper.metatype` will be `null`.
+          // - The condition `wrapper.inject` is needed here because when we use
+          // `useFactory`, the value of `wrapper.metatype` will be the supplied
+          // factory function.
+          // For both cases, we should use `wrapper.instance.constructor` instead
+          // of `wrapper.metatype` to resolve processor's class properly.
+          // But since calling `wrapper.instance` could degrade overall performance
+          // we must defer it as much we can. But there's no other way to grab the
+          // right class that could be annotated with `@Processor()` decorator
+          // without using this property.
+          !wrapper.metatype || wrapper.inject
+            ? wrapper.instance?.constructor
+            : wrapper.metatype,
+        ),
+      );
+
+    processors.forEach((wrapper: InstanceWrapper) => {
+      const { instance } = wrapper;
+      const isRequestScoped = !wrapper.isDependencyTreeStatic();
+
+      if (!(instance instanceof DynamicProcessorHost))
+        throw new InvalidProcessorClassError(instance.constructor?.name);
+
+      this.handleDynamicProcessor(instance, wrapper.host, isRequestScoped);
     });
   }
 
@@ -188,6 +224,39 @@ export class BullExplorer {
       ...options,
     });
     (instance as any)._worker = worker;
+  }
+
+  handleDynamicProcessor<T extends DynamicProcessorHost>(
+    instance: T,
+    moduleRef: Module,
+    isRequestScoped: boolean,
+  ) {
+    const methodKey = 'process';
+    let processor: Processor<any, void, string>;
+
+    if (isRequestScoped) {
+      processor = async (...args: unknown[]) => {
+        const contextId = createContextId();
+
+        if (this.moduleRef.registerRequestByContextId) {
+          // Additional condition to prevent breaking changes in
+          // applications that use @nestjs/bull older than v7.4.0.
+          const jobRef = args[0];
+          this.moduleRef.registerRequestByContextId(jobRef, contextId);
+        }
+
+        const contextInstance = await this.injector.loadPerContext(
+          instance,
+          moduleRef,
+          moduleRef.providers,
+          contextId,
+        );
+        return contextInstance[methodKey].call(contextInstance, ...args);
+      };
+    } else {
+      processor = instance[methodKey].bind(instance);
+    }
+    (instance as any)._worker = processor;
   }
 
   registerWorkerEventListeners(wrapper: InstanceWrapper) {
