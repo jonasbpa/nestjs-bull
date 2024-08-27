@@ -1,6 +1,6 @@
 {
   "name": "@jonasbpa/nestjs-bullmq",
-  "version": "10.2.2",
+  "version": "10.2.3",
   "description": "Nest - modern, fast, powerful node.js web framework (@bullmq)",
   "homepage": "https://github.com/nestjs/bull",
   "bugs": {

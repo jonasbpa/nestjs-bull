@@ -1,7 +1,7 @@
 import { OnApplicationShutdown, Type } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
-import { NestQueueOptions } from '../interfaces/queue-options.interface';
 import { NestWorkerOptions } from '../interfaces/worker-options.interface';
+import { NestWorkerEventOptions } from '../interfaces/worker-event-options.interface';
 
 export abstract class DynamicProcessorHost<
   T extends Worker['processFn'] = Worker['processFn'],
@@ -25,15 +25,11 @@ export abstract class DynamicProcessorHost<
 
   registerWorker(
     queueName: string,
-    queueOpts: NestQueueOptions,
-    options: NestWorkerOptions = {},
+    options: NestWorkerOptions,
+    eventOptions?: Array<NestWorkerEventOptions>,
   ) {
-    const worker = new this._workerClass(queueName, this.processor, {
-      connection: queueOpts.connection,
-      sharedConnection: queueOpts.sharedConnection,
-      prefix: queueOpts.prefix,
-      ...options,
-    });
+    const worker = new this._workerClass(queueName, this.processor, options);
+    eventOptions?.forEach((event) => worker.on(event.eventName, event.handler));
     this._workers.push(worker);
   }
 
