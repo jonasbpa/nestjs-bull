@@ -10,7 +10,7 @@ export abstract class DynamicProcessorHost<
 {
   private readonly _processor: T | undefined;
   private readonly _workerClass: Type = Worker;
-  private _workers: Array<X> = [];
+  private readonly _workers: { [name: string]: X } = {};
 
   get processor(): T {
     if (!this._processor) {
@@ -21,19 +21,30 @@ export abstract class DynamicProcessorHost<
     return this._processor;
   }
 
+  get workers(): { [name: string]: X } {
+    if (!this._workers) {
+      throw new Error(
+        '"Worker" has not yet been initialized. Make sure to interact with worker instances after the "onModuleInit" lifecycle hook is triggered for example, in the "onApplicationBootstrap" hook, or if "manualRegistration" is set to true make sure to call "BullRegistrar.register()"',
+      );
+    }
+    return this._workers;
+  }
+
   abstract process(job: Job, token?: string): Promise<any>;
 
   registerWorker(
     queueName: string,
     options: NestWorkerOptions,
     eventOptions?: Array<NestWorkerEventOptions>,
-  ) {
+  ): X {
+    if (this._workers[queueName]) return this._workers[queueName];
     const worker = new this._workerClass(queueName, this.processor, options);
     eventOptions?.forEach((event) => worker.on(event.eventName, event.handler));
-    this._workers.push(worker);
+    this._workers[queueName] = worker;
+    return worker;
   }
 
   onApplicationShutdown(signal?: string) {
-    return this._workers?.map((_worker) => _worker.close());
+    return Object.values(this._workers)?.map((_worker) => _worker.close());
   }
 }
