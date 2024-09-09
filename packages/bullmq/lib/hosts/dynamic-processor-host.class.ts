@@ -10,7 +10,7 @@ export abstract class DynamicProcessorHost<
 {
   private readonly _processor: T | undefined;
   private readonly _workerClass: Type = Worker;
-  private readonly _workers: { [name: string]: X | undefined } = {};
+  private readonly _workers: { [name: string]: X } = {};
 
   get processor(): T {
     if (!this._processor) {
@@ -21,7 +21,7 @@ export abstract class DynamicProcessorHost<
     return this._processor;
   }
 
-  get workers(): { [name: string]: X | undefined } {
+  get workers(): { [name: string]: X } {
     if (!this._workers) {
       throw new Error(
         '"Worker" has not yet been initialized. Make sure to interact with worker instances after the "onModuleInit" lifecycle hook is triggered for example, in the "onApplicationBootstrap" hook, or if "manualRegistration" is set to true make sure to call "BullRegistrar.register()"',
