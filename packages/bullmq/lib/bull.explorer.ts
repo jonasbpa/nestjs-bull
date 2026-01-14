@@ -253,16 +253,19 @@ export class BullExplorer implements OnApplicationShutdown {
     isRequestScoped: boolean,
   ) {
     const methodKey = 'process';
-    let processor: Processor<any, void, string>;
+    let processor: Processor<any, any, string>;
 
     if (isRequestScoped) {
-      processor = async (...args: unknown[]) => {
-        const contextId = createContextId();
+      processor = async (...args: Parameters<Processor<any, any, string>>) => {
+        const jobRef = args[0];
+        const contextId = ContextIdFactory.getByRequest(jobRef);
 
-        if (this.moduleRef.registerRequestByContextId) {
+        if (
+          this.moduleRef.registerRequestByContextId &&
+          !contextId[REQUEST_CONTEXT_ID]
+        ) {
           // Additional condition to prevent breaking changes in
           // applications that use @nestjs/bull older than v7.4.0.
-          const jobRef = args[0];
           this.moduleRef.registerRequestByContextId(jobRef, contextId);
         }
 
@@ -272,10 +275,12 @@ export class BullExplorer implements OnApplicationShutdown {
           moduleRef.providers,
           contextId,
         );
-        return contextInstance[methodKey].call(contextInstance, ...args);
+        const processor = contextInstance[methodKey].bind(contextInstance);
+        return this.processorDecoratorService.decorate(processor)(...args);
       };
     } else {
       processor = instance[methodKey].bind(instance);
+      processor = this.processorDecoratorService.decorate(processor);
     }
     (instance as any)._processor = processor;
   }
