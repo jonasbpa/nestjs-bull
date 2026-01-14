@@ -1,9 +1,11 @@
-import { getQueueToken } from '@nestjs/bull-shared';
 import { DiscoveryModule } from '@nestjs/core';
+import { Module } from '@nestjs/core/injector/module';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Job, Queue } from 'bullmq';
 import {
+  getQueueToken,
   Processor,
+  ProcessorDecoratorService,
   QueueEventsHost,
   QueueEventsListener,
   WorkerHost,
@@ -37,7 +39,11 @@ describe('BullExplorer', () => {
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({
       imports: [DiscoveryModule],
-      providers: [BullExplorer, BullMetadataAccessor],
+      providers: [
+        BullExplorer,
+        BullMetadataAccessor,
+        ProcessorDecoratorService,
+      ],
     }).compile();
 
     bullExplorer = moduleRef.get(BullExplorer);
@@ -49,12 +55,7 @@ describe('BullExplorer', () => {
     const queueName = 'test_queue';
     const queue = {
       name: queueName,
-      opts: {
-        connection: {
-          host: 'localhost',
-          port: 6380,
-        },
-      },
+      opts: { connection: { host: 'localhost', port: 6380 } },
     } as Partial<Queue>;
 
     @Processor(queueName)
@@ -69,18 +70,17 @@ describe('BullExplorer', () => {
         instance,
         queueName,
         queue.opts,
-        null,
+        null as unknown as Module,
         false,
       );
       expect(workerCtorSpy).toHaveBeenCalledWith(
         queueName,
         expect.any(Function),
-        expect.objectContaining({
-          connection: queue.opts.connection,
-        }),
+        expect.objectContaining({ connection: queue.opts.connection }),
       );
       expect(instance.worker).not.toBeUndefined();
     });
+
     it('should instantiate Bull worker with the appropriate worker options', () => {
       const workerOptions = { concurrency: 3 };
 
@@ -98,7 +98,7 @@ describe('BullExplorer', () => {
         instance as any,
         queueName,
         queue.opts,
-        null,
+        null as unknown as Module,
         false,
         workerOptions,
       );
@@ -109,6 +109,51 @@ describe('BullExplorer', () => {
         expect.objectContaining({
           concurrency: 3,
           connection: queue.opts.connection,
+        }),
+      );
+    });
+    it('should pass telemetry option to the worker constructor', () => {
+      const instance = new FixtureProcessor();
+
+      // Create a mock telemetry object that satisfies the Telemetry interface
+      const mockTelemetry = {
+        instrumentJob: jest.fn(),
+        tracer: {
+          startSpan: jest.fn(),
+          currentSpan: jest.fn(),
+          withSpan: jest.fn(),
+          withContext: jest.fn(),
+          bind: jest.fn(),
+        } as any, // Cast to any to bypass type checking for tracer
+        contextManager: {
+          active: jest.fn(),
+          with: jest.fn(),
+          bind: jest.fn(),
+          getMetadata: jest.fn(),
+          fromMetadata: jest.fn(),
+        } as any, // Cast to any to bypass type checking for contextManager
+      };
+
+      // Add telemetry to queue options
+      const queueOptsWithTelemetry = {
+        ...queue.opts,
+        telemetry: mockTelemetry,
+      };
+
+      bullExplorer.handleProcessor(
+        instance,
+        queueName,
+        queueOptsWithTelemetry,
+        null as unknown as Module,
+        false,
+      );
+
+      expect(workerCtorSpy).toHaveBeenCalledWith(
+        queueName,
+        expect.any(Function),
+        expect.objectContaining({
+          connection: queue.opts.connection,
+          telemetry: mockTelemetry,
         }),
       );
     });
@@ -123,16 +168,16 @@ describe('BullExplorer', () => {
     it('should instantiate Bull queue events classes', async () => {
       const mockQueue = {
         name: queueName,
-        opts: {
-          connection: {
-            host: 'localhost',
-            port: 6380,
-          },
-        },
+        opts: { connection: { host: 'localhost', port: 6380 } },
       };
       moduleRef = await Test.createTestingModule({
         imports: [DiscoveryModule],
-        providers: [BullExplorer, BullMetadataAccessor, EventsListener],
+        providers: [
+          BullExplorer,
+          BullMetadataAccessor,
+          EventsListener,
+          ProcessorDecoratorService,
+        ],
       }).compile();
 
       bullExplorer = moduleRef.get(BullExplorer);
@@ -147,25 +192,72 @@ describe('BullExplorer', () => {
         expect.objectContaining(mockQueue.opts),
       );
     });
+    it('should pass telemetry option to queue events constructor', async () => {
+      const mockTelemetry = {
+        instrumentJob: jest.fn(),
+        tracer: {
+          startSpan: jest.fn(),
+          currentSpan: jest.fn(),
+          withSpan: jest.fn(),
+          withContext: jest.fn(),
+          bind: jest.fn(),
+        } as any,
+        contextManager: {
+          active: jest.fn(),
+          with: jest.fn(),
+          bind: jest.fn(),
+          getMetadata: jest.fn(),
+          fromMetadata: jest.fn(),
+        } as any,
+      };
+
+      const mockQueue = {
+        name: queueName,
+        opts: {
+          connection: { host: 'localhost', port: 6380 },
+          telemetry: mockTelemetry,
+        },
+      };
+
+      moduleRef = await Test.createTestingModule({
+        imports: [DiscoveryModule],
+        providers: [
+          BullExplorer,
+          BullMetadataAccessor,
+          EventsListener,
+          ProcessorDecoratorService,
+        ],
+      }).compile();
+
+      bullExplorer = moduleRef.get(BullExplorer);
+
+      jest
+        .spyOn(bullExplorer, 'getQueueOptions')
+        .mockReturnValue(mockQueue.opts);
+      bullExplorer.registerQueueEventListeners();
+
+      expect(queueEventsSpy).toHaveBeenCalledWith(
+        queueName,
+        expect.objectContaining({
+          connection: mockQueue.opts.connection,
+          telemetry: mockTelemetry,
+        }),
+      );
+    });
   });
 
   describe('getQueueOptions', () => {
     it('should return options associated with the given queue', async () => {
       const queueToken = getQueueToken('test');
       const queueOptions = {
-        connection: {
-          host: 'localhost',
-          port: 65793,
-        },
+        connection: { host: 'localhost', port: 65793 },
         sharedConnection: true,
       };
       const moduleRef = await Test.createTestingModule({
         imports: [BullModule.registerQueue({ name: 'test', ...queueOptions })],
       })
         .overrideProvider(queueToken)
-        .useValue({
-          opts: queueOptions,
-        })
+        .useValue({ opts: queueOptions })
         .compile();
 
       const explorer = moduleRef.get(BullExplorer);
@@ -182,24 +274,27 @@ describe('BullExplorer', () => {
     it('should return options associated with the given flowProducer', async () => {
       const flowProducerToken = getFlowProducerToken('test');
       const flowProducerOptions = {
-        connection: {
-          host: 'localhost',
-          port: 65793,
-        },
+        connection: { host: 'localhost', port: 65793 },
         sharedConnection: true,
       };
       const moduleRef = await Test.createTestingModule({
-        imports: [BullModule.registerFlowProducer({ name: 'test', ...flowProducerOptions })],
+        imports: [
+          BullModule.registerFlowProducer({
+            name: 'test',
+            ...flowProducerOptions,
+          }),
+        ],
       })
         .overrideProvider(flowProducerToken)
-        .useValue({
-          opts: flowProducerOptions,
-        })
+        .useValue({ opts: flowProducerOptions })
         .compile();
 
       const explorer = moduleRef.get(BullExplorer);
 
-      const flowProducerOpts = explorer.getFlowProducerOptions(flowProducerToken, 'test');
+      const flowProducerOpts = explorer.getFlowProducerOptions(
+        flowProducerToken,
+        'test',
+      );
       expect(flowProducerOpts).toBeDefined();
       expect(flowProducerOpts).toEqual(flowProducerOptions);
 

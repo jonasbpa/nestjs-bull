@@ -15,6 +15,7 @@ import {
   createQueueProviders,
 } from './bull.providers';
 import { BullRegistrar } from './bull.registrar';
+import { ProcessorDecoratorService } from './instrument/processor-decorator.service';
 import {
   BullRootModuleOptions,
   RegisterFlowProducerAsyncOptions,
@@ -35,11 +36,26 @@ import {
   getSharedConfigToken,
 } from './utils';
 
+/**
+ * @publicApi
+ */
 @Module({})
 export class BullModule {
   private static _queueClass: Type = Queue;
   private static _flowProducerClass: Type = FlowProducer;
   private static _workerClass: Type = Worker;
+  private static coreModuleDefinition = {
+    global: true,
+    module: BullModule,
+    imports: [DiscoveryModule],
+    providers: [
+      BullExplorer,
+      BullMetadataAccessor,
+      BullRegistrar,
+      ProcessorDecoratorService,
+    ],
+    exports: [BullRegistrar],
+  };
 
   /**
    * Class to be used to create Bull queues.
@@ -168,7 +184,9 @@ export class BullModule {
       global: true,
       module: BullModule,
       imports,
-      providers,
+      providers: asyncSharedBullConfig.extraProviders
+        ? [...providers, ...asyncSharedBullConfig.extraProviders]
+        : providers,
       exports: providers,
     };
   }
@@ -184,7 +202,7 @@ export class BullModule {
 
     return {
       module: BullModule,
-      imports: [BullModule.registerCore()],
+      imports: [BullModule.coreModuleDefinition],
       providers: [...queueOptionProviders, ...queueProviders],
       exports: queueProviders,
     };
@@ -204,11 +222,19 @@ export class BullModule {
     const asyncQueueOptionsProviders = options
       .map((queueOptions) => this.createAsyncProviders(queueOptions))
       .reduce((a, b) => a.concat(b), []);
+    const extraProviders = options
+      .map((queueOptions) => queueOptions.extraProviders)
+      .filter((extraProviders) => extraProviders)
+      .reduce((a, b) => a.concat(b), []);
 
     return {
-      imports: imports.concat(BullModule.registerCore()),
+      imports: imports.concat(BullModule.coreModuleDefinition),
       module: BullModule,
-      providers: [...asyncQueueOptionsProviders, ...queueProviders],
+      providers: [
+        ...asyncQueueOptionsProviders,
+        ...queueProviders,
+        ...extraProviders,
+      ],
       exports: queueProviders,
     };
   }
@@ -231,7 +257,7 @@ export class BullModule {
       // fallback to the "registerQueue" in case someone accidentally used the "registerQueueAsync" instead
       return createQueueOptionProviders([options]);
     }
-    const useClass = options.useClass as Type<RegisterQueueOptionsFactory>;
+    const useClass = options.useClass;
     return [
       optionalSharedConfigHolder,
       this.createAsyncOptionsProvider(options, optionalSharedConfigHolder),
@@ -264,10 +290,7 @@ export class BullModule {
       };
     }
     // `as Type<BullOptionsFactory>` is a workaround for microsoft/TypeScript#31603
-    const inject = [
-      (asyncOptions.useClass ||
-        asyncOptions.useExisting) as Type<RegisterQueueOptionsFactory>,
-    ];
+    const inject = [asyncOptions.useClass || asyncOptions.useExisting];
     return {
       provide: getQueueOptionsToken(asyncOptions.name),
       useFactory: async (
@@ -296,7 +319,7 @@ export class BullModule {
 
     return {
       module: BullModule,
-      imports: [BullModule.registerCore()],
+      imports: [BullModule.coreModuleDefinition],
       providers: [...flowProducerOptionProviders, ...flowProducerProviders],
       exports: flowProducerProviders,
     };
@@ -319,7 +342,7 @@ export class BullModule {
       .reduce((a, b) => a.concat(b), []);
 
     return {
-      imports: imports.concat(BullModule.registerCore()),
+      imports: imports.concat(BullModule.coreModuleDefinition),
       module: BullModule,
       providers: [
         ...asyncFlowProducerOptionsProviders,
@@ -350,8 +373,7 @@ export class BullModule {
       // fallback to the "registerFlowProducer" in case someone accidentally used the "registerFlowProducerAsync" instead
       return createFlowProducerOptionProviders([options]);
     }
-    const useClass =
-      options.useClass as Type<RegisterFlowProducerOptionsFactory>;
+    const useClass = options.useClass;
     return [
       optionalSharedConfigHolder,
       this.createAsyncFlowProducerOptionsProvider(
@@ -387,10 +409,7 @@ export class BullModule {
       };
     }
     // `as Type<BullOptionsFactory>` is a workaround for microsoft/TypeScript#31603
-    const inject = [
-      (asyncOptions.useClass ||
-        asyncOptions.useExisting) as Type<RegisterFlowProducerOptionsFactory>,
-    ];
+    const inject = [asyncOptions.useClass || asyncOptions.useExisting];
     return {
       provide: getFlowProducerOptionsToken(asyncOptions.name),
       useFactory: async (
@@ -423,7 +442,7 @@ export class BullModule {
         extraOptionsProvider,
       ];
     }
-    const useClass = config.useClass as Type<SharedBullConfigurationFactory>;
+    const useClass = config.useClass;
     return [
       this.createAsyncSharedConfigurationProvider(configKey, config),
       extraOptionsProvider,
@@ -446,25 +465,12 @@ export class BullModule {
       };
     }
     // `as Type<SharedBullConfigurationFactory>` is a workaround for microsoft/TypeScript#31603
-    const inject = [
-      (options.useClass ||
-        options.useExisting) as Type<SharedBullConfigurationFactory>,
-    ];
+    const inject = [options.useClass || options.useExisting];
     return {
       provide: getSharedConfigToken(configKey),
       useFactory: async (optionsFactory: SharedBullConfigurationFactory) =>
         optionsFactory.createSharedConfiguration(),
       inject,
-    };
-  }
-
-  private static registerCore() {
-    return {
-      global: true,
-      module: BullModule,
-      imports: [DiscoveryModule],
-      providers: [BullExplorer, BullMetadataAccessor, BullRegistrar],
-      exports: [BullRegistrar],
     };
   }
 

@@ -1,8 +1,16 @@
-import { FactoryProvider, ModuleMetadata, Type } from '@nestjs/common';
+import {
+  FactoryProvider,
+  ModuleMetadata,
+  Provider,
+  Type,
+} from '@nestjs/common';
 import { QueueOptions } from 'bullmq';
 import { BullQueueProcessor } from '../bull.types';
 import { PartialThisParameter } from '../utils/partial-this-parameter.type';
 
+/**
+ * @publicApi
+ */
 export interface RegisterQueueOptions
   extends PartialThisParameter<QueueOptions, 'connection'> {
   /**
@@ -29,14 +37,27 @@ export interface RegisterQueueOptions
    * This option is not supported in BullMQ 5 and considered a bad practice in prior versions.
    * */
   sharedConnection?: boolean;
+
+  /**
+   * When `true`, the queue will be force disconnected from Redis in the "onApplicationShutdown" lifecycle event.
+   * Otherwise, the queue will be gracefully disconnected.
+   * @default false
+   */
+  forceDisconnectOnShutdown?: boolean;
 }
 
+/**
+ * @publicApi
+ */
 export interface RegisterQueueOptionsFactory {
   createRegisterQueueOptions():
     | Promise<RegisterQueueOptions>
     | RegisterQueueOptions;
 }
 
+/**
+ * @publicApi
+ */
 export interface RegisterQueueAsyncOptions
   extends Pick<ModuleMetadata, 'imports'> {
   /**
@@ -72,4 +93,9 @@ export interface RegisterQueueAsyncOptions
    * Optional list of providers to be injected into the context of the Factory function.
    */
   inject?: FactoryProvider['inject'];
+
+  /**
+   * Extra providers to be registered in the module context.
+   */
+  extraProviders?: Provider[];
 }

@@ -1,13 +1,23 @@
-import { FactoryProvider, ModuleMetadata, Type } from '@nestjs/common';
-import * as Bull from 'bull';
+import {
+  FactoryProvider,
+  ModuleMetadata,
+  Provider,
+  Type,
+} from '@nestjs/common';
 import { BullRootModuleOptions } from './bull-module-options.interface';
 
+/**
+ * @publicApi
+ */
 export interface SharedBullConfigurationFactory {
   createSharedConfiguration():
     | Promise<BullRootModuleOptions>
     | BullRootModuleOptions;
 }
 
+/**
+ * @publicApi
+ */
 export interface SharedBullAsyncConfiguration
   extends Pick<ModuleMetadata, 'imports'> {
   /**
@@ -31,4 +41,9 @@ export interface SharedBullAsyncConfiguration
    * Optional list of providers to be injected into the context of the Factory function.
    */
   inject?: FactoryProvider['inject'];
+
+  /**
+   * Extra providers to be registered in the module context.
+   */
+  extraProviders?: Provider[];
 }

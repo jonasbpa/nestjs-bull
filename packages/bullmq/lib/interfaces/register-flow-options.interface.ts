@@ -2,6 +2,9 @@ import { FactoryProvider, ModuleMetadata, Type } from '@nestjs/common';
 import { QueueBaseOptions } from 'bullmq';
 import { PartialThisParameter } from '../utils/partial-this-parameter.type';
 
+/**
+ * @publicApi
+ */
 export interface RegisterFlowProducerOptions
   extends PartialThisParameter<QueueBaseOptions, 'connection'> {
   /**
@@ -17,6 +20,13 @@ export interface RegisterFlowProducerOptions
    * @default default
    */
   configKey?: string;
+
+  /**
+   * When `true`, the flow will be force disconnected from Redis in the "onApplicationShutdown" lifecycle event.
+   * Otherwise, the flow will be gracefully disconnected.
+   * @default true
+   */
+  forceDisconnectOnShutdown?: boolean;
 }
 
 export interface RegisterFlowProducerOptionsFactory {
@@ -25,6 +35,9 @@ export interface RegisterFlowProducerOptionsFactory {
     | RegisterFlowProducerOptions;
 }
 
+/**
+ * @publicApi
+ */
 export interface RegisterFlowProducerAsyncOptions
   extends Pick<ModuleMetadata, 'imports'> {
   /**

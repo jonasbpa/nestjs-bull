@@ -1,7 +1,12 @@
 import { getQueueToken, NO_QUEUE_FOUND } from '@nestjs/bull-shared';
-import { Injectable, Logger, OnModuleInit, Type } from '@nestjs/common';
 import {
-  createContextId,
+  Injectable,
+  Logger,
+  OnApplicationShutdown,
+  Type,
+} from '@nestjs/common';
+import {
+  ContextIdFactory,
   DiscoveryService,
   MetadataScanner,
   ModuleRef,
@@ -9,6 +14,7 @@ import {
 import { Injector } from '@nestjs/core/injector/injector';
 import { InstanceWrapper } from '@nestjs/core/injector/instance-wrapper';
 import { Module } from '@nestjs/core/injector/module';
+import { REQUEST_CONTEXT_ID } from '@nestjs/core/router/request/request-constants';
 import {
   FlowOpts,
   FlowProducer,
@@ -18,23 +24,25 @@ import {
   Worker,
 } from 'bullmq';
 import { BullMetadataAccessor } from './bull-metadata.accessor';
-import { OnQueueEventMetadata, OnWorkerEventMetadata } from './decorators';
 import { NO_FLOW_PRODUCER_FOUND } from './bull.messages';
+import { OnQueueEventMetadata, OnWorkerEventMetadata } from './decorators';
 import {
   InvalidProcessorClassError,
   InvalidQueueEventsListenerClassError,
 } from './errors';
 import { QueueEventsHost, WorkerHost } from './hosts';
-import { getSharedConfigToken } from './utils/get-shared-config-token.util';
+import { ProcessorDecoratorService } from './instrument/processor-decorator.service';
 import { NestQueueOptions } from './interfaces/queue-options.interface';
 import { NestWorkerOptions } from './interfaces/worker-options.interface';
 import { DynamicProcessorHost } from './hosts/dynamic-processor-host.class';
+import { getSharedConfigToken } from './utils/get-shared-config-token.util';
 
 @Injectable()
-export class BullExplorer {
+export class BullExplorer implements OnApplicationShutdown {
   private static _workerClass: Type = Worker;
   private readonly logger = new Logger('BullModule');
   private readonly injector = new Injector();
+  private readonly workers: Worker[] = [];
 
   static set workerClass(cls: Type) {
     this._workerClass = cls;
@@ -45,7 +53,12 @@ export class BullExplorer {
     private readonly discoveryService: DiscoveryService,
     private readonly metadataAccessor: BullMetadataAccessor,
     private readonly metadataScanner: MetadataScanner,
+    private readonly processorDecoratorService: ProcessorDecoratorService,
   ) {}
+
+  onApplicationShutdown(signal?: string) {
+    return Promise.all(this.workers.map((worker) => worker.close()));
+  }
 
   register() {
     this.registerDynamicProcessors();
@@ -193,16 +206,19 @@ export class BullExplorer {
     options: NestWorkerOptions = {},
   ) {
     const methodKey = 'process';
-    let processor: Processor<any, void, string>;
+    let processor: Processor<any, any, string>;
 
     if (isRequestScoped) {
-      processor = async (...args: unknown[]) => {
-        const contextId = createContextId();
+      processor = async (...args: Parameters<Processor<any, any, string>>) => {
+        const jobRef = args[0];
+        const contextId = ContextIdFactory.getByRequest(jobRef);
 
-        if (this.moduleRef.registerRequestByContextId) {
+        if (
+          this.moduleRef.registerRequestByContextId &&
+          !contextId[REQUEST_CONTEXT_ID]
+        ) {
           // Additional condition to prevent breaking changes in
           // applications that use @nestjs/bull older than v7.4.0.
-          const jobRef = args[0];
           this.moduleRef.registerRequestByContextId(jobRef, contextId);
         }
 
@@ -212,18 +228,23 @@ export class BullExplorer {
           moduleRef.providers,
           contextId,
         );
-        return contextInstance[methodKey].call(contextInstance, ...args);
+        const processor = contextInstance[methodKey].bind(contextInstance);
+        return this.processorDecoratorService.decorate(processor)(...args);
       };
     } else {
       processor = instance[methodKey].bind(instance);
+      processor = this.processorDecoratorService.decorate(processor);
     }
     const worker = new BullExplorer._workerClass(queueName, processor, {
       connection: queueOpts.connection,
       sharedConnection: queueOpts.sharedConnection,
       prefix: queueOpts.prefix,
+      telemetry: queueOpts.telemetry,
       ...options,
     });
     (instance as any)._worker = worker;
+
+    this.workers.push(worker);
   }
 
   handleDynamicProcessor<T extends DynamicProcessorHost>(
@@ -342,6 +363,7 @@ export class BullExplorer {
           connection: queueOpts.connection,
           prefix: queueOpts.prefix,
           sharedConnection: queueOpts.sharedConnection,
+          telemetry: queueOpts.telemetry,
           ...queueEventsOptions,
         });
         (instance as any)._queueEvents = queueEventsInstance;

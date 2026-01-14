@@ -2,6 +2,9 @@ import { Scope, SetMetadata } from '@nestjs/common';
 import { SCOPE_OPTIONS_METADATA } from '@nestjs/common/constants';
 import { BULL_MODULE_QUEUE } from '../bull.constants';
 
+/**
+ * @publicApi
+ */
 export interface ProcessorOptions {
   /**
    * Specifies the name of the queue to subscribe to.
@@ -35,7 +38,6 @@ export function Processor(
       ? queueNameOrOptions
       : { name: queueNameOrOptions };
 
-  // eslint-disable-next-line @typescript-eslint/ban-types
   return (target: Function) => {
     SetMetadata(SCOPE_OPTIONS_METADATA, options)(target);
     SetMetadata(BULL_MODULE_QUEUE, options)(target);
